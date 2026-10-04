@@ -2,10 +2,8 @@ import { CHANNEL_APPROVAL_NATIVE_RUNTIME_CONTEXT_CAPABILITY } from "openclaw/plu
 import type { PluginRuntime } from "openclaw/plugin-sdk/channel-core";
 import { registerChannelRuntimeContext } from "openclaw/plugin-sdk/channel-runtime-context";
 import { makeProxyFetch } from "openclaw/plugin-sdk/fetch-runtime";
-import { createLazyRuntimeModule } from "openclaw/plugin-sdk/lazy-runtime";
 import { getRuntimeConfig } from "openclaw/plugin-sdk/runtime-config-snapshot";
 import { waitForAbortSignal } from "openclaw/plugin-sdk/runtime-env";
-import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { formatErrorMessage } from "openclaw/plugin-sdk/ssrf-runtime";
 import { resolveTelegramAccountOwnerAgentId } from "./account-owner.js";
 import { resolveTelegramAccount } from "./accounts.js";
@@ -38,12 +36,6 @@ function formatTelegramOffsetRotationMessage(
   const reasonLabel = TELEGRAM_OFFSET_ROTATION_LABELS[info.reason];
   return `[telegram] Detected ${reasonLabel} for account "${accountId}" (was ${previousLabel}, now ${info.currentBotId}); discarding stale update offset ${info.staleLastUpdateId ?? "(none)"} and starting fresh.`;
 }
-
-const loadTelegramMonitorPollingRuntime = createLazyRuntimeModule(
-  () => import("./monitor-polling.runtime.js"),
-);
-
-const loadTelegramMonitorWebhookRuntime = createLazyRuntimeModule(() => import("./webhook.js"));
 
 export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
   const logInfo = (line: string) => (opts.runtime?.log ?? console.log)(line);
@@ -116,7 +108,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
             log(formatTelegramOffsetRotationMessage(account.accountId, info)),
         });
     if (opts.useWebhook) {
-      const { startTelegramWebhook } = await loadTelegramMonitorWebhookRuntime();
+      const { startTelegramWebhook } = await import("./webhook.js");
       const webhook = await startTelegramWebhook({
         token,
         accountId: account.accountId,
@@ -125,7 +117,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
         path: opts.webhookPath,
         legacyWebhook: opts.legacyWebhook ?? account.config.legacyWebhook,
         secret: opts.webhookSecret ?? account.config.webhookSecret,
-        runtime: opts.runtime as RuntimeEnv,
+        runtime: opts.runtime,
         buildContext: pluginChannelRuntime?.inbound.buildContext,
         // Forward the owning runtime's bound dispatcher into the turn plan; never invoked here.
         dispatchReplyFromConfig: pluginChannelRuntime?.reply?.dispatchReplyFromConfig,
@@ -143,7 +135,7 @@ export async function monitorTelegramProvider(opts: MonitorTelegramOpts = {}) {
       return;
     }
 
-    const { TelegramPollingSession } = await loadTelegramMonitorPollingRuntime();
+    const { TelegramPollingSession } = await import("./polling-session.js");
     const lastUpdateId = normalizeTelegramUpdateId(persistedOffsetRaw);
     if (persistedOffsetRaw !== null && lastUpdateId === null) {
       log(
